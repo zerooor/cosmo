@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Космический полёт</title>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+        #score {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-size: 20px;
+            font-family: Arial;
+            z-index: 100;
+        }
+        #startScreen {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.7);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 200;
+            color: white;
+            font-family: Arial;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 18px;
+            margin-top: 20px;
+            background-color: #0088cc;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="score">Очки: 0</div>
+    <canvas id="renderCanvas"></canvas>
+    
+    <div id="startScreen">
+        <h1>Космический полёт</h1>
+        <p>Уклоняйтесь от астероидов!</p>
+        <p>Используйте кнопки внизу для управления</p>
+        <button id="startButton">Начать игру</button>
+    </div>
+
+    <script>
+        // Инициализация Telegram WebApp
+        const tg = window.Telegram.WebApp;
+        tg.expand();
+        
+        // Переменные игры
+        let score = 0;
+        let gameStarted = false;
+        let ship;
+        let asteroids = [];
+        let enginePower = 0;
+        let steering = 0;
+        const MAX_ASTEROIDS = 10;
+        
+        // Элементы интерфейса
+        const scoreElement = document.getElementById('score');
+        const startScreen = document.getElementById('startScreen');
+        const startButton = document.getElementById('startButton');
+        
+        // Инициализация сцены Babylon.js
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true);
+        
+        const createScene = function() {
+            const scene = new BABYLON.Scene(engine);
+            scene.clearColor = new BABYLON.Color4(0, 0, 0.1, 1);
+            
+            // Камера
+            const camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2, 15, BABYLON.Vector3.Zero(), scene);
+            camera.attachControl(canvas, false);
+            camera.lowerRadiusLimit = 10;
+            camera.upperRadiusLimit = 20;
+            
+            // Освещение
+            const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+            light.intensity = 0.7;
+            
+            // Корабль игрока
+            ship = BABYLON.MeshBuilder.CreateBox("ship", {size: 1}, scene);
+            ship.position.z = 5;
+            ship.material = new BABYLON.StandardMaterial("shipMat", scene);
+            ship.material.emissiveColor = new BABYLON.Color3(0, 0.5, 1);
+            
+            // Создаём звёздное небо
+            createStarfield(scene);
+            
+            // Обработчики кнопок Telegram
+            tg.MainButton.setText("Ускориться");
+            tg.MainButton.onClick(() => {
+                enginePower = 0.1;
+            });
+            
+            tg.MainButton.hide();
+            
+            // Кнопки управления
+            const btnParams = {
+                text: "Влево",
+                color: "#FF0000"
+            };
+            const leftBtn = tg.BackButton.show(btnParams);
+            leftBtn.onClick(() => {steering = -0.05;
+            });
+            
+            const rightBtn = tg.BackButton.show({...btnParams, text: "Вправо"});
+            rightBtn.onClick(() => {
+                steering = 0.05;
+            });
+            
+            // Запуск игры
+            startButton.addEventListener('click', () => {
+                startScreen.style.display = 'none';
+                gameStarted = true;
+                tg.MainButton.show();
+                spawnAsteroids();
+                scene.registerBeforeRender(gameLoop);
+            });
+            
+            return scene;
+        };
+        
+        // Создание звёздного неба
+        function createStarfield(scene) {
+            const starCount = 1000;
+            for (let i = 0; i < starCount; i++) {
+                const star = BABYLON.MeshBuilder.CreateSphere("star", {diameter: 0.1}, scene);
+                star.position.x = (Math.random() - 0.5) * 100;
+                star.position.y = (Math.random() - 0.5) * 100;
+                star.position.z = (Math.random() - 0.5) * 100;
+                
+                const starMat = new BABYLON.StandardMaterial("starMat", scene);
+                starMat.emissiveColor = new BABYLON.Color3(1, 1, 1);
+                star.material = starMat;
+            }
+        }
+        
+        // Создание астероидов
+        function spawnAsteroids() {
+            const scene = ship.getScene();
+            
+            for (let i = 0; i < MAX_ASTEROIDS; i++) {
+                const asteroid = BABYLON.MeshBuilder.CreateSphere("asteroid", {diameter: 1 + Math.random()}, scene);
+                asteroid.position.x = (Math.random() - 0.5) * 20;
+                asteroid.position.y = (Math.random() - 0.5) * 20;
+                asteroid.position.z = -20 - Math.random() * 30;
+                
+                const asteroidMat = new BABYLON.StandardMaterial("asteroidMat", scene);
+                asteroidMat.diffuseColor = new BABYLON.Color3(0.5, 0.3, 0.1);
+                asteroid.material = asteroidMat;
+                
+                // Добавляем вращение
+                asteroid.rotationSpeed = new BABYLON.Vector3(
+                    Math.random() * 0.02,
+                    Math.random() * 0.02,
+                    Math.random() * 0.02
+                );
+                
+                // Скорость движения
+                asteroid.speed = 0.1 + Math.random() * 0.2;
+                
+                asteroids.push(asteroid);
+            }
+        }
+        
+        // Основной игровой цикл
+        function gameLoop() {
+            if (!gameStarted) return;
+            
+            // Движение корабля
+            ship.position.x += steering;
+            ship.position.z += enginePower;
+            
+            // Ограничение движения по X
+            if (ship.position.x > 5) ship.position.x = 5;
+            if (ship.position.x < -5) ship.position.x = -5;
+            
+            // Сброс управления
+            steering *= 0.9;
+            enginePower *= 0.95;
+            
+            // Движение и вращение астероидов
+            asteroids.forEach(asteroid => {
+                asteroid.position.z += asteroid.speed;
+                asteroid.rotation.addInPlace(asteroid.rotationSpeed);
+                
+                // Проверка столкновений
+                if (BABYLON.Vector3.Distance(ship.position, asteroid.position) < 1.5) {
+                    gameOver();
+                }
+                
+                // Возврат астероидов, которые улетели далеко
+                if (asteroid.position.z > 10) {
+                    asteroid.position.z = -20 - Math.random() * 30;
+                    asteroid.position.x = (Math.random() - 0.5) * 20;
+                    asteroid.position.y = (Math.random() - 0.5) * 20;
+                    score++;
+                    scoreElement.textContent = `Очки: ${score}`;
+                }
+            });
+        }
+        
+        // Конец игры
+        function gameOver() {
+            gameStarted = false;
+            tg.showAlert(`Игра окончена! Ваш счёт: ${score}`);
+            
+            // Сброс игрыscore = 0;
+            scoreElement.textContent = `Очки: 0`;
+            
+            // Удаление астероидов
+            asteroids.forEach(asteroid => asteroid.dispose());
+            asteroids = [];
+            
+            // Сброс позиции корабля
+            ship.position.x = 0;
+            ship.position.z = 5;
+            
+            // Показ стартового экрана
+            startScreen.style.display = 'flex';
+            tg.MainButton.hide();
+        }
+        
+        // Создание и запуск сцены
+        const scene = createScene();
+        engine.runRenderLoop(() => scene.render());
+        
+        // Обработка изменения размера окна
+        window.addEventListener('resize', () => engine.resize());
+    </script>
+</body>
+</html>

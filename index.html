@@ -40,6 +40,7 @@
             z-index: 200;
             color: white;
             font-family: Arial;
+            text-align: center;
         }
         button {
             padding: 10px 20px;
@@ -51,6 +52,14 @@
             border-radius: 5px;
             cursor: pointer;
         }
+        #controlsInfo {
+            position: absolute;
+            bottom: 20px;
+            width: 100%;
+            text-align: center;
+            color: white;
+            font-family: Arial;
+        }
     </style>
 </head>
 <body>
@@ -60,9 +69,11 @@
     <div id="startScreen">
         <h1>Космический полёт</h1>
         <p>Уклоняйтесь от астероидов!</p>
-        <p>Используйте кнопки внизу для управления</p>
+        <p>Используйте кнопку "Ускориться" внизу и наклон устройства для управления</p>
         <button id="startButton">Начать игру</button>
     </div>
+
+    <div id="controlsInfo">Используйте кнопку ниже для ускорения</div>
 
     <script>
         // Инициализация Telegram WebApp
@@ -77,11 +88,14 @@
         let enginePower = 0;
         let steering = 0;
         const MAX_ASTEROIDS = 10;
+        let beta = 0; // Для акселерометра
+        let gamma = 0; // Для акселерометра
         
         // Элементы интерфейса
         const scoreElement = document.getElementById('score');
         const startScreen = document.getElementById('startScreen');
         const startButton = document.getElementById('startButton');
+        const controlsInfo = document.getElementById('controlsInfo');
         
         // Инициализация сцены Babylon.js
         const canvas = document.getElementById("renderCanvas");
@@ -108,35 +122,44 @@
             ship.material.emissiveColor = new BABYLON.Color3(0, 0.5, 1);
             
             // Создаём звёздное небо
-            createStarfield(scene);
-            
-            // Обработчики кнопок Telegram
-            tg.MainButton.setText("Ускориться");
+            createStarfield(scene);// Настройка кнопки ускорения
+            tg.MainButton.setText("УСКОРИТЬСЯ");
             tg.MainButton.onClick(() => {
                 enginePower = 0.1;
             });
-            
             tg.MainButton.hide();
             
-            // Кнопки управления
-            const btnParams = {
-                text: "Влево",
-                color: "#FF0000"
-            };
-            const leftBtn = tg.BackButton.show(btnParams);
-            leftBtn.onClick(() => {steering = -0.05;
-            });
-            
-            const rightBtn = tg.BackButton.show({...btnParams, text: "Вправо"});
-            rightBtn.onClick(() => {
-                steering = 0.05;
-            });
+            // Обработчик акселерометра (для мобильных устройств)
+            if (window.DeviceOrientationEvent) {
+                window.addEventListener('deviceorientation', (event) => {
+                    if (gameStarted) {
+                        // Используем gamma (наклон влево/вправо) для управления
+                        steering = event.gamma ? event.gamma * 0.02 : 0;
+                    }
+                });
+            } else {
+                controlsInfo.textContent = "Используйте кнопку ниже для ускорения (на ПК используйте стрелки)";
+                
+                // Управление с клавиатуры для десктопов
+                window.addEventListener('keydown', (e) => {
+                    if (!gameStarted) return;
+                    
+                    if (e.key === 'ArrowLeft') {
+                        steering = -0.05;
+                    } else if (e.key === 'ArrowRight') {
+                        steering = 0.05;
+                    } else if (e.key === 'ArrowUp') {
+                        enginePower = 0.1;
+                    }
+                });
+            }
             
             // Запуск игры
             startButton.addEventListener('click', () => {
                 startScreen.style.display = 'none';
                 gameStarted = true;
                 tg.MainButton.show();
+                controlsInfo.style.display = 'none';
                 spawnAsteroids();
                 scene.registerBeforeRender(gameLoop);
             });
@@ -199,8 +222,7 @@
             if (ship.position.x > 5) ship.position.x = 5;
             if (ship.position.x < -5) ship.position.x = -5;
             
-            // Сброс управления
-            steering *= 0.9;
+            // Сброс управленияsteering *= 0.9;
             enginePower *= 0.95;
             
             // Движение и вращение астероидов
@@ -229,7 +251,8 @@
             gameStarted = false;
             tg.showAlert(`Игра окончена! Ваш счёт: ${score}`);
             
-            // Сброс игрыscore = 0;
+            // Сброс игры
+            score = 0;
             scoreElement.textContent = `Очки: 0`;
             
             // Удаление астероидов
@@ -242,6 +265,7 @@
             
             // Показ стартового экрана
             startScreen.style.display = 'flex';
+            controlsInfo.style.display = 'block';
             tg.MainButton.hide();
         }
         

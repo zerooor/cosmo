@@ -2,7 +2,7 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
     <title>Космический полёт</title>
     <script src="https://cdn.babylonjs.com/babylon.js"></script>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
@@ -13,11 +13,13 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
+            touch-action: manipulation;
         }
         #renderCanvas {
             width: 100%;
             height: 100%;
             touch-action: none;
+            display: block;
         }
         #score {
             position: absolute;
@@ -27,6 +29,7 @@
             font-size: 20px;
             font-family: Arial;
             z-index: 100;
+            text-shadow: 1px 1px 2px black;
         }
         #startScreen {
             position: absolute;
@@ -42,14 +45,14 @@
             font-family: Arial;
             text-align: center;
         }
-        button {
-            padding: 10px 20px;
-            font-size: 18px;
-            margin-top: 20px;
+        #startButton {
+            padding: 15px 30px;
+            font-size: 20px;
+            margin-top: 30px;
             background-color: #0088cc;
             color: white;
             border: none;
-            border-radius: 5px;
+            border-radius: 10px;
             cursor: pointer;
         }
         #controlsInfo {
@@ -59,6 +62,29 @@
             text-align: center;
             color: white;
             font-family: Arial;
+            background-color: rgba(0,0,0,0.5);
+            padding: 10px 0;
+        }
+        .touch-controls {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            padding: 0 20px;
+            box-sizing: border-box;
+            position: absolute;
+            bottom: 80px;
+        }
+        .touch-btn {
+            width: 80px;
+            height: 80px;
+            background-color: rgba(255,255,255,0.3);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+            user-select: none;
         }
     </style>
 </head>
@@ -69,18 +95,41 @@
     <div id="startScreen">
         <h1>Космический полёт</h1>
         <p>Уклоняйтесь от астероидов!</p>
-        <p>Используйте кнопку "Ускориться" внизу и наклон устройства для управления</p>
-        <button id="startButton">Начать игру</button>
+        <p id="controlsDesc">Используйте кнопки внизу экрана для управления</p>
+        <button id="startButton">НАЧАТЬ ИГРУ</button>
     </div>
 
-    <div id="controlsInfo">Используйте кнопку ниже для ускорения</div>
+    <div id="controlsInfo">Используйте кнопки ниже для управления</div>
+    
+    <div class="touch-controls" id="touchControls" style="display: none;">
+        <div class="touch-btn" id="leftBtn">←</div>
+        <div class="touch-btn" id="rightBtn">→</div>
+    </div>
 
     <script>
+        // Проверка загрузки Telegram WebApp
+        if (!window.Telegram || !window.Telegram.WebApp) {
+            console.error("Telegram WebApp not loaded!");
+            // Фолбэк для тестирования вне Telegram
+            window.Telegram = {
+                WebApp: {
+                    ready: function() { console.log("Telegram WebApp ready (mock)"); },
+                    expand: function() { console.log("Expanded (mock)"); },
+                    MainButton: {
+                        setText: function() {},
+                        onClick: function() {},
+                        show: function() {},
+                        hide: function() {}
+                    },
+                    showAlert: function(msg) { alert(msg); }
+                }
+            };
+        }
+
         // Инициализация Telegram WebApp
         const tg = window.Telegram.WebApp;
-        tg.expand();
-        
-        // Переменные игры
+        tg.ready();
+        tg.expand();// Переменные игры
         let score = 0;
         let gameStarted = false;
         let ship;
@@ -88,14 +137,26 @@
         let enginePower = 0;
         let steering = 0;
         const MAX_ASTEROIDS = 10;
-        let beta = 0; // Для акселерометра
-        let gamma = 0; // Для акселерометра
         
         // Элементы интерфейса
         const scoreElement = document.getElementById('score');
         const startScreen = document.getElementById('startScreen');
         const startButton = document.getElementById('startButton');
         const controlsInfo = document.getElementById('controlsInfo');
+        const touchControls = document.getElementById('touchControls');
+        const leftBtn = document.getElementById('leftBtn');
+        const rightBtn = document.getElementById('rightBtn');
+        const controlsDesc = document.getElementById('controlsDesc');
+        
+        // Проверка мобильного устройства
+        const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+        
+        if (isMobile) {
+            controlsDesc.innerHTML = "Используйте кнопки внизу экрана для управления<br>Или наклоняйте устройство влево/вправо";
+            touchControls.style.display = "flex";
+        } else {
+            controlsDesc.innerHTML = "Используйте стрелки на клавиатуре:<br>← → для поворотов, ↑ для ускорения";
+        }
         
         // Инициализация сцены Babylon.js
         const canvas = document.getElementById("renderCanvas");
@@ -118,54 +179,94 @@
             // Корабль игрока
             ship = BABYLON.MeshBuilder.CreateBox("ship", {size: 1}, scene);
             ship.position.z = 5;
-            ship.material = new BABYLON.StandardMaterial("shipMat", scene);
-            ship.material.emissiveColor = new BABYLON.Color3(0, 0.5, 1);
+            const shipMat = new BABYLON.StandardMaterial("shipMat", scene);
+            shipMat.emissiveColor = new BABYLON.Color3(0, 0.5, 1);
+            ship.material = shipMat;
             
             // Создаём звёздное небо
-            createStarfield(scene);// Настройка кнопки ускорения
+            createStarfield(scene);
+            
+            // Настройка кнопки ускорения Telegram
             tg.MainButton.setText("УСКОРИТЬСЯ");
             tg.MainButton.onClick(() => {
-                enginePower = 0.1;
+                if (gameStarted) enginePower = 0.1;
             });
             tg.MainButton.hide();
             
-            // Обработчик акселерометра (для мобильных устройств)
-            if (window.DeviceOrientationEvent) {
+            // Сенсорные кнопки для мобильных устройств
+            let leftActive = false;
+            let rightActive = false;
+            
+            const handleTouchStart = (dir) => {
+                return () => {
+                    if (dir === 'left') leftActive = true;
+                    if (dir === 'right') rightActive = true;
+                };
+            };
+            
+            const handleTouchEnd = (dir) => {
+                return () => {
+                    if (dir === 'left') leftActive = false;
+                    if (dir === 'right') rightActive = false;
+                };
+            };
+            
+            leftBtn.addEventListener('touchstart', handleTouchStart('left'));
+            leftBtn.addEventListener('mousedown', handleTouchStart('left'));
+            leftBtn.addEventListener('touchend', handleTouchEnd('left'));
+            leftBtn.addEventListener('mouseup', handleTouchEnd('left'));
+            leftBtn.addEventListener('mouseleave', handleTouchEnd('left'));
+            
+            rightBtn.addEventListener('touchstart', handleTouchStart('right'));
+            rightBtn.addEventListener('mousedown', handleTouchStart('right'));
+            rightBtn.addEventListener('touchend', handleTouchEnd('right'));
+            rightBtn.addEventListener('mouseup', handleTouchEnd('right'));
+            rightBtn.addEventListener('mouseleave', handleTouchEnd('right'));
+            
+            // Обработчик акселерометра
+            if (window.DeviceOrientationEvent && isMobile) {
                 window.addEventListener('deviceorientation', (event) => {
                     if (gameStarted) {
                         // Используем gamma (наклон влево/вправо) для управления
-                        steering = event.gamma ? event.gamma * 0.02 : 0;
-                    }
-                });
-            } else {
-                controlsInfo.textContent = "Используйте кнопку ниже для ускорения (на ПК используйте стрелки)";
-                
-                // Управление с клавиатуры для десктопов
-                window.addEventListener('keydown', (e) => {
-                    if (!gameStarted) return;
-                    
-                    if (e.key === 'ArrowLeft') {
-                        steering = -0.05;
-                    } else if (e.key === 'ArrowRight') {
-                        steering = 0.05;
-                    } else if (e.key === 'ArrowUp') {
-                        enginePower = 0.1;
+                        const tilt = event.gamma ? event.gamma * 0.02 : 0;
+                        if (Math.abs(tilt) > 0.01) {
+                            steering = tilt;
+                        }
                     }
                 });
             }
             
-            // Запуск игры
-            startButton.addEventListener('click', () => {
-                startScreen.style.display = 'none';
-                gameStarted = true;
-                tg.MainButton.show();
-                controlsInfo.style.display = 'none';
-                spawnAsteroids();
-                scene.registerBeforeRender(gameLoop);
+            // Управление с клавиатуры
+            window.addEventListener('keydown', (e) => {
+                if (!gameStarted) return;
+                
+                switch(e.key) {
+                    case 'ArrowLeft':
+                        steering = -0.05;
+                        break;
+                    case 'ArrowRight':
+                        steering = 0.05;
+                        break;
+                    case 'ArrowUp':
+                        enginePower = 0.1;
+                        break;
+                }
             });
+            
+            // Запуск игры
+            startButton.addEventListener('click', startGame);
             
             return scene;
         };
+        
+        function startGame() {
+            startScreen.style.display = 'none';
+            gameStarted = true;
+            tg.MainButton.show();
+            controlsInfo.style.display = 'none';
+            spawnAsteroids();
+            scene.registerBeforeRender(gameLoop);
+        }
         
         // Создание звёздного неба
         function createStarfield(scene) {
@@ -187,7 +288,8 @@
             const scene = ship.getScene();
             
             for (let i = 0; i < MAX_ASTEROIDS; i++) {
-                const asteroid = BABYLON.MeshBuilder.CreateSphere("asteroid", {diameter: 1 + Math.random()}, scene);
+                const size = 0.5 + Math.random() * 1.5;
+                const asteroid = BABYLON.MeshBuilder.CreateSphere("asteroid", {diameter: size}, scene);
                 asteroid.position.x = (Math.random() - 0.5) * 20;
                 asteroid.position.y = (Math.random() - 0.5) * 20;
                 asteroid.position.z = -20 - Math.random() * 30;
@@ -205,6 +307,7 @@
                 
                 // Скорость движения
                 asteroid.speed = 0.1 + Math.random() * 0.2;
+                asteroid.size = size;
                 
                 asteroids.push(asteroid);
             }
@@ -214,15 +317,20 @@
         function gameLoop() {
             if (!gameStarted) return;
             
+            // Обработка сенсорного управления
+            if (leftActive) steering = -0.05;
+            if (rightActive) steering = 0.05;
+            
             // Движение корабля
             ship.position.x += steering;
-            ship.position.z += enginePower;
-            
-            // Ограничение движения по X
+            ship.position.z += enginePower;// Ограничение движения по X
             if (ship.position.x > 5) ship.position.x = 5;
             if (ship.position.x < -5) ship.position.x = -5;
             
-            // Сброс управленияsteering *= 0.9;
+            // Сброс управления
+            if (!leftActive && !rightActive) {
+                steering *= 0.9;
+            }
             enginePower *= 0.95;
             
             // Движение и вращение астероидов
@@ -230,8 +338,11 @@
                 asteroid.position.z += asteroid.speed;
                 asteroid.rotation.addInPlace(asteroid.rotationSpeed);
                 
-                // Проверка столкновений
-                if (BABYLON.Vector3.Distance(ship.position, asteroid.position) < 1.5) {
+                // Проверка столкновений с учётом размера астероида
+                const distance = BABYLON.Vector3.Distance(ship.position, asteroid.position);
+                const collisionDistance = 0.7 + asteroid.size * 0.5;
+                
+                if (distance < collisionDistance) {
                     gameOver();
                 }
                 
@@ -271,10 +382,16 @@
         
         // Создание и запуск сцены
         const scene = createScene();
-        engine.runRenderLoop(() => scene.render());
         
         // Обработка изменения размера окна
-        window.addEventListener('resize', () => engine.resize());
+        window.addEventListener('resize', function() {
+            engine.resize();
+        });
+        
+        // Запуск рендер-лупа
+        engine.runRenderLoop(function() {
+            scene.render();
+        });
     </script>
 </body>
 </html>
